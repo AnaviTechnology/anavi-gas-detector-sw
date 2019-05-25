@@ -817,6 +817,10 @@ void handleHTU21D()
 
         // Publish new temperature value through MQTT
         publishSensorData("temperature", "temperature", sensorTemperature);
+
+        // Temperature and humidity are shown on the display
+        // so the text has to be refreshed
+        need_redraw = true;
     }
 
     // Check if humidity has changed
@@ -993,14 +997,6 @@ void detectGas()
   prevQuality = quality;
   prevGas = gas;
 
-  sensor_line1 = "Air ";
-  if (true == isTempSensorAttached)
-  {
-    sensor_line1 += (int)round(sensorTemperature);
-    sensor_line1 += "C ";
-    sensor_line1 += (int)round(sensorHumidity);
-    sensor_line1 += "%";
-  }
   sensor_line2 = "Quality: " + quality;
   sensor_line3 = "Conductivity: ";
   sensor_line3 += conductivity;
@@ -1069,8 +1065,16 @@ void loop()
         detectGas();
     }
 
-    if (need_redraw)
+    if (true == need_redraw)
     {
+        sensor_line1 = "Air ";
+        if (true == isTempSensorAttached)
+        {
+          sensor_line1 += (int)round(sensorTemperature);
+          sensor_line1 += "C ";
+          sensor_line1 += (int)round(sensorHumidity);
+          sensor_line1 += "%";
+        }
         drawDisplay(mqtt_line1[0] ? mqtt_line1 : sensor_line1.c_str(),
                     mqtt_line2[0] ? mqtt_line2 : sensor_line2.c_str(),
                     mqtt_line3[0] ? mqtt_line3 : sensor_line3.c_str());
