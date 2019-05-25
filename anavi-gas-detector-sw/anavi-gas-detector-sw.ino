@@ -82,6 +82,7 @@ const long gasInterval = 1000;
 unsigned long mqttConnectionPreviousMillis = millis();
 const long mqttConnectionInterval = 60000;
 
+bool isTempSensorAttached = false;
 float sensorTemperature = 0;
 float sensorHumidity = 0;
 uint16_t sensorAmbientLight = 0;
@@ -928,8 +929,10 @@ void handleBMP()
 
 void handleSensors()
 {
+    isTempSensorAttached = false;
     if (isSensorAvailable(sensorHTU21D))
     {
+        isTempSensorAttached = true;
         handleHTU21D();
     }
     if (isSensorAvailable(sensorBH1750))
@@ -981,7 +984,14 @@ void detectGas()
   txtConductivity += "%";
   Serial.println(txtConductivity);
 
-  sensor_line1 = "Air";
+  sensor_line1 = "Air ";
+  if (true == isTempSensorAttached)
+  {
+    sensor_line1 += (int)round(sensorTemperature);
+    sensor_line1 += "C ";
+    sensor_line1 += (int)round(sensorHumidity);
+    sensor_line1 += "%";
+  }
   sensor_line2 = txtQuality;
   sensor_line3 = txtConductivity;
   need_redraw = true;
