@@ -79,6 +79,12 @@ const long sensorInterval = 3000;
 unsigned long gasPreviousMillis = 0;
 const long gasInterval = 1000;
 
+// Last known good values for air quality and
+// gas concentration (through air conductivity)
+String prevQuality = "";
+int prevConductivity = 0;
+int prevGas = -1;
+
 unsigned long mqttConnectionPreviousMillis = millis();
 const long mqttConnectionInterval = 60000;
 
@@ -825,6 +831,10 @@ void handleHTU21D()
 
         // Publish new humidity value through MQTT
         publishSensorData("humidity", "humidity", sensorHumidity);
+
+        // Temperature and humidity are shown on the display
+        // so the text has to be refreshed
+        need_redraw = true;
     }
 }
 
@@ -948,41 +958,40 @@ void handleSensors()
 void detectGas()
 {
   int gas = analogRead(0);
-  Serial.print("Value: ");
-  Serial.println(gas);
-
-  Serial.print("Air quality: ");
-  String air="Good";
-  if (gas <= 190)
-  {
-    Serial.println("Good");
-    setColor(LOW, LOW, HIGH);
-  }
-  else if (gas <= 300)
-  {
-    air="Moderate";
-    Serial.println("Moderate");
-    setColor(LOW, HIGH, LOW);
-  }
-  else
-  {
-    air="Poor";
-    Serial.println("Poor");
-    setColor(HIGH, LOW, LOW);
-  }
-
-  String txtQuality = "Quality: "+air;
-  Serial.println(txtQuality);
-
   // Calculate conductivity in pecents
   // The gas concetration depends on the coductivity
   // If the analog MQ sensor detects more gases
   // the conductivity will be higher
-  String txtConductivity = "Conductivity: ";
   int conductivity = round(((float)gas/1023)*100);
-  txtConductivity += conductivity;
-  txtConductivity += "%";
-  Serial.println(txtConductivity);
+
+  String quality = "Good";
+  if (gas <= 190)
+  {
+    setColor(LOW, LOW, HIGH);
+  }
+  else if (gas <= 300)
+  {
+    quality="Moderate";
+    setColor(LOW, HIGH, LOW);
+  }
+  else
+  {
+    quality="Poor";
+    setColor(HIGH, LOW, LOW);
+  }
+
+  // Do not print or draw on the display if there is no
+  // change of the state from the MQ gas sensor
+  // or if the change of the value for ADC is minimal
+  if ( (5 > abs(gas - prevGas)) || ((prevConductivity == conductivity) && (prevQuality == quality)) )
+  {
+    return;
+  }
+
+  // Update the detected gas values
+  prevConductivity = conductivity;
+  prevQuality = quality;
+  prevGas = gas;
 
   sensor_line1 = "Air ";
   if (true == isTempSensorAttached)
@@ -992,8 +1001,22 @@ void detectGas()
     sensor_line1 += (int)round(sensorHumidity);
     sensor_line1 += "%";
   }
-  sensor_line2 = txtQuality;
-  sensor_line3 = txtConductivity;
+  sensor_line2 = "Quality: " + quality;
+  sensor_line3 = "Conductivity: ";
+  sensor_line3 += conductivity;
+  sensor_line3 += "%";
+
+  // Publish new pressure values through MQTT
+  publishSensorData("AirQuality", "Quality", quality);
+  publishSensorData("AirConductivity", "Conductivity", conductivity);
+
+  // Print values in the serial output
+  Serial.print("Gas value: ");
+  Serial.println(gas);
+  Serial.println(sensor_line1);
+  Serial.println(sensor_line2);
+  Serial.println(sensor_line3);
+
   need_redraw = true;
 }
 
