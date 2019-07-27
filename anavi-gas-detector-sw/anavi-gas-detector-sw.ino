@@ -888,11 +888,10 @@ void handleHTU21D()
         // Print new temprature value
         sensorTemperature = tempTemperature;
         Serial.print("Temperature: ");
-        Serial.print(sensorTemperature);
-        Serial.println("C");
+        Serial.println(formatTemperature(sensorTemperature));
 
         // Publish new temperature value through MQTT
-        publishSensorData("temperature", "temperature", sensorTemperature);
+        publishSensorData("temperature", "temperature", convertTemperature(sensorTemperature));
 
         // Temperature and humidity are shown on the display
         // so the text has to be refreshed
@@ -1001,8 +1000,7 @@ void handleBMP()
   float temperature;
   bmp.getTemperature(&temperature);
   Serial.print("BMP180 Temperature: ");
-  Serial.print(temperature);
-  Serial.println(" C");
+  Serial.println(formatTemperature(temperature));
   // For accurate results replace SENSORS_PRESSURE_SEALEVELHPA with the current SLP
   float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
   float altitude;
@@ -1013,7 +1011,7 @@ void handleBMP()
 
   // Publish new pressure values through MQTT
   publishSensorData("BMPpressure", "BMPpressure", event.pressure);
-  publishSensorData("BMPtemperature", "BMPtemperature", temperature);
+  publishSensorData("BMPtemperature", "BMPtemperature", convertTemperature(temperature));
   publishSensorData("BMPaltitude", "BMPaltitude", altitude);
 }
 
