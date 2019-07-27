@@ -73,6 +73,7 @@ const int pinCustom = 2;
 const int pinGreen = 13;
 const int pinYellow = 12;
 const int pinRed = 14;
+const int pinAdc = 0;
 
 unsigned long sensorPreviousMillis = 0;
 const long sensorInterval = 3000;
@@ -957,7 +958,7 @@ void handleSensors()
 
 void detectGas()
 {
-  int gas = analogRead(0);
+  int gas = analogRead(pinAdc);
   // Calculate conductivity in pecents
   // The gas concetration depends on the coductivity
   // If the analog MQ sensor detects more gases
