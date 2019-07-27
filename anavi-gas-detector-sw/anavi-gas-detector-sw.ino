@@ -171,6 +171,18 @@ void setColor(bool red, bool yellow, bool green)
   digitalWrite(pinGreen, green);
 }
 
+void apWiFiCallback(WiFiManager *myWiFiManager)
+{
+    String configPortalSSID = myWiFiManager->getConfigPortalSSID();
+    // Print information in the serial output
+    Serial.print("Created access point for configuration: ");
+    Serial.println(configPortalSSID);
+    // Show information on the display
+    String apId = configPortalSSID.substring(configPortalSSID.length()-5);
+    String configHelper("AP ID: "+apId);
+    drawDisplay("Gas Detector", "Please configure", configHelper.c_str());
+}
+
 void setup()
 {
     // put your setup code here, to run once:
@@ -329,10 +341,14 @@ void setup()
     drawDisplay("Gas Detector", "Connecting...", WiFi.SSID().c_str());
 
     //fetches ssid and pass and tries to connect
-    //if it does not connect it starts an access point with the specified name
-    //here  "AutoConnectAP"
+    //if it does not connect it starts an access point
     //and goes into a blocking loop awaiting configuration
-    if (!wifiManager.autoConnect("ANAVI Gas Detector", ""))
+    wifiManager.setAPCallback(apWiFiCallback);
+    // Append the last 5 character of the machine id to the access point name
+    String apId(machineId);
+    apId = apId.substring(apId.length() - 5);
+    String accessPointName = "ANAVI Gas Detector " + apId;
+    if (!wifiManager.autoConnect(accessPointName.c_str(), ""))
     {
         digitalWrite(pinAlarm, LOW);
         Serial.println("failed to connect and hit timeout");
