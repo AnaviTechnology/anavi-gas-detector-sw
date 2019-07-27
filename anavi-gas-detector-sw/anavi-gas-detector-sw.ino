@@ -107,6 +107,11 @@ char ha_name[32+1] = "";        // Make sure the machineId fits.
 #ifdef OTA_UPGRADES
 char ota_server[40];
 #endif
+char temp_scale[40] = "celsius";
+
+// Set the temperature in Celsius or Fahrenheit
+// true - Celsius, false - Fahrenheit
+bool configTempCelsius = true;
 
 // MD5 of chip ID.  If you only have a handful of gas detectors and
 // use your own MQTT broker (instead of iot.eclips.org) you may want
@@ -128,7 +133,7 @@ char line1_topic[11 + sizeof(machineId)];
 char line2_topic[11 + sizeof(machineId)];
 char line3_topic[11 + sizeof(machineId)];
 char cmnd_temp_coefficient_topic[14 + sizeof(machineId)];
-char cmnd_ds_temp_coefficient_topic[20 + sizeof(machineId)];
+char cmnd_temp_format[16 + sizeof(machineId)];
 
 // The display can fit 26 "i":s on a single line.  It will fit even
 // less of other characters.
@@ -181,6 +186,35 @@ void apWiFiCallback(WiFiManager *myWiFiManager)
     String apId = configPortalSSID.substring(configPortalSSID.length()-5);
     String configHelper("AP ID: "+apId);
     drawDisplay("Gas Detector", "Please configure", configHelper.c_str());
+}
+
+void saveConfig()
+{
+    Serial.println("Saving configurations to file.");
+    DynamicJsonDocument json(1024);
+    json["mqtt_server"] = mqtt_server;
+    json["mqtt_port"] = mqtt_port;
+    json["workgroup"] = workgroup;
+    json["username"] = username;
+    json["password"] = password;
+    json["temp_scale"] = temp_scale;
+#ifdef HOME_ASSISTANT_DISCOVERY
+    json["ha_name"] = ha_name;
+#endif
+#ifdef OTA_UPGRADES
+    json["ota_server"] = ota_server;
+#endif
+
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile)
+    {
+        Serial.println("ERROR: failed to open config file for writing");
+        return;
+    }
+
+    serializeJson(json, Serial);
+    serializeJson(json, configFile);
+    configFile.close();
 }
 
 void setup()
@@ -247,6 +281,12 @@ void setup()
                     strcpy(workgroup, json["workgroup"]);
                     strcpy(username, json["username"]);
                     strcpy(password, json["password"]);
+                    {
+                        const char *s = json["temp_scale"];
+                        if (!s)
+                            s = "celsius";
+                        strcpy(temp_scale, s);
+                    }
 #ifdef HOME_ASSISTANT_DISCOVERY
                     {
                         const char *s = json["ha_name"];
@@ -281,6 +321,8 @@ void setup()
     sprintf(line1_topic, "cmnd/%s/line1", machineId);
     sprintf(line2_topic, "cmnd/%s/line2", machineId);
     sprintf(line3_topic, "cmnd/%s/line3", machineId);
+    sprintf(cmnd_temp_coefficient_topic, "cmnd/%s/tempcoef", machineId);
+    sprintf(cmnd_temp_format, "cmnd/%s/tempformat", machineId);
 #ifdef OTA_UPGRADES
     sprintf(cmnd_update_topic, "cmnd/%s/update", machineId);
 #endif
@@ -299,6 +341,7 @@ void setup()
 #ifdef OTA_UPGRADES
     WiFiManagerParameter custom_ota_server("ota_server", "OTA server", ota_server, sizeof(ota_server));
 #endif
+    WiFiManagerParameter custom_temperature_scale("temp_scale", "Temperature scale", temp_scale, sizeof(temp_scale));
 
     char htmlMachineId[200];
     sprintf(htmlMachineId,"<p style=\"color: red;\">Machine ID:</p><p><b>%s</b></p><p>Copy and save the machine ID because you will need it to control the device.</p>", machineId);
@@ -317,6 +360,7 @@ void setup()
     wifiManager.addParameter(&custom_workgroup);
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_pass);
+    wifiManager.addParameter(&custom_temperature_scale);
 #ifdef HOME_ASSISTANT_DISCOVERY
     wifiManager.addParameter(&custom_mqtt_ha_name);
 #endif
@@ -368,6 +412,7 @@ void setup()
     strcpy(workgroup, custom_workgroup.getValue());
     strcpy(username, custom_mqtt_user.getValue());
     strcpy(password, custom_mqtt_pass.getValue());
+    strcpy(temp_scale, custom_temperature_scale.getValue());
 #ifdef HOME_ASSISTANT_DISCOVERY
     strcpy(ha_name, custom_mqtt_ha_name.getValue());
 #endif
@@ -378,30 +423,7 @@ void setup()
     //save the custom parameters to FS
     if (shouldSaveConfig)
     {
-        Serial.println("saving config");
-        DynamicJsonDocument json(1024);
-        json["mqtt_server"] = mqtt_server;
-        json["mqtt_port"] = mqtt_port;
-        json["workgroup"] = workgroup;
-        json["username"] = username;
-        json["password"] = password;
-#ifdef HOME_ASSISTANT_DISCOVERY
-        json["ha_name"] = ha_name;
-#endif
-#ifdef OTA_UPGRADES
-        json["ota_server"] = ota_server;
-#endif
-
-        File configFile = SPIFFS.open("/config.json", "w");
-        if (!configFile)
-        {
-            Serial.println("failed to open config file for writing");
-        }
-
-        serializeJson(json, Serial);
-        serializeJson(json, configFile);
-        configFile.close();
-        //end save
+        saveConfig();
     }
 
     Serial.println("local ip");
@@ -430,6 +452,18 @@ void setup()
     hiddenpass[strlen(password)] = '\0';
     Serial.print("MQTT Password: ");
     Serial.println(hiddenpass);
+    Serial.print("Saved temperature scale: ");
+    Serial.println(temp_scale);
+    configTempCelsius = ( (0 == strlen(temp_scale)) || String(temp_scale).equalsIgnoreCase("celsius"));
+    Serial.print("Temperature scale: ");
+    if (true == configTempCelsius)
+    {
+      Serial.println("Celsius");
+    }
+    else
+    {
+      Serial.println("Fahrenheit");
+    }
 #ifdef HOME_ASSISTANT_DISCOVERY
     Serial.print("Home Assistant sensor name: ");
     Serial.println(ha_name);
@@ -625,6 +659,29 @@ void do_ota_upgrade(char *text)
 }
 #endif
 
+void processMessageScale(const char* text)
+{
+    StaticJsonDocument<200> data;
+    deserializeJson(data, text);
+    // Set temperature to Celsius or Fahrenheit and redraw screen
+    Serial.print("Changing the temperature scale to: ");
+    if (data.containsKey("scale") && (0 == strcmp(data["scale"], "celsius")) )
+    {
+        Serial.println("Celsius");
+        configTempCelsius = true;
+        strcpy(temp_scale, "celsius");
+    }
+    else
+    {
+        Serial.println("Fahrenheit");
+        configTempCelsius = false;
+        strcpy(temp_scale, "fahrenheit");
+    }
+    need_redraw = true;
+    // Save configurations to file
+    saveConfig();
+}
+
 void mqttCallback(char* topic, byte* payload, unsigned int length)
 {
     // Convert received bytes to a string
@@ -652,6 +709,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     {
         snprintf(mqtt_line3, sizeof(mqtt_line3), "%s", text);
         need_redraw = true;
+    }
+
+    if (strcmp(topic, cmnd_temp_format) == 0)
+    {
+        processMessageScale(text);
     }
 
 #ifdef OTA_UPGRADES
@@ -700,7 +762,7 @@ void mqttReconnect()
             mqttClient.subscribe(line2_topic);
             mqttClient.subscribe(line3_topic);
             mqttClient.subscribe(cmnd_temp_coefficient_topic);
-            mqttClient.subscribe(cmnd_ds_temp_coefficient_topic);
+            mqttClient.subscribe(cmnd_temp_format);
 #ifdef OTA_UPGRADES
             mqttClient.subscribe(cmnd_update_topic);
 #endif
@@ -773,6 +835,7 @@ void publishState()
     static char topic[80];
 
 #ifdef HOME_ASSISTANT_DISCOVERY
+    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
     snprintf(payload, sizeof(payload),
              temp_template, ha_name, workgroup, machineId);
     snprintf(topic, sizeof(topic),
@@ -1029,6 +1092,22 @@ void detectGas()
   need_redraw = true;
 }
 
+float convertCelsiusToFahrenheit(float temperature)
+{
+    return (temperature * 9/5 + 32);
+}
+
+float convertTemperature(float temperature)
+{
+    return (true == configTempCelsius) ? temperature : convertCelsiusToFahrenheit(temperature);
+}
+
+String formatTemperature(float temperature)
+{
+    String unit = (true == configTempCelsius) ? "°C" : "°F";
+    return String(convertTemperature(temperature), 1) + unit;
+}
+
 void loop()
 {
     // put your main code here, to run repeatedly:
@@ -1083,8 +1162,7 @@ void loop()
         sensor_line1 = "Air ";
         if (true == isTempSensorAttached)
         {
-          sensor_line1 += (int)round(sensorTemperature);
-          sensor_line1 += "C ";
+          sensor_line1 += formatTemperature(sensorTemperature) + " ";
           sensor_line1 += (int)round(sensorHumidity);
           sensor_line1 += "%";
         }
