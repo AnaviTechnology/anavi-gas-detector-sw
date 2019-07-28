@@ -801,38 +801,60 @@ void mqttReconnect()
 }
 
 #ifdef HOME_ASSISTANT_DISCOVERY
-const char *temp_template = (
-    "{\"device_class\": \"temperature\", "
-    "\"name\": \"%s Temp\", "
-    "\"state_topic\": \"%s/%s/air/temperature\", "
-    "\"unit_of_measurement\": \"°C\", "
-    "\"value_template\": \"{{ value_json.temperature}}\" }");
-
-const char *humid_template = (
-    "{\"device_class\": \"humidity\", "
-    "\"name\": \"%s Humidity\", "
-    "\"state_topic\": \"%s/%s/air/humidity\", "
-    "\"unit_of_measurement\": \"%%\", "
-    "\"value_template\": \"{{ value_json.humidity}}\" }");
-
-const char *water_temp_template = (
-    "{\"device_class\": \"temperature\", "
-    "\"name\": \"%s Water Temp\", "
-    "\"state_topic\": \"%s/%s/water/temperature\", "
-    "\"unit_of_measurement\": \"°C\", "
-    "\"value_template\": \"{{ value_json.temperature}}\" }");
-
-bool publishLargePayload(const char *topic, const char *payload, bool retained)
+bool publishSensorDiscovery(const char *config_key,
+                            const char *device_class,
+                            const char *name_suffix,
+                            const char *state_topic,
+                            const char *unit,
+                            const char *value_template,
+                            bool binary = false)
 {
-    size_t payload_len = strlen(payload);
+    DynamicJsonDocument json(1024);
 
+    String sensorType = "sensor";
+    if (true == binary)
+    {
+        sensorType = "binary_sensor";
+    }
+    else
+    {
+        // Unit of measurement is supported only by non-binary sensors
+        json["unit_of_measurement"] = unit;
+        json["value_template"] = value_template;
+    }
+    static char topic[48 + sizeof(machineId)];
+    snprintf(topic, sizeof(topic),
+             "homeassistant/%s/%s/%s/config", sensorType.c_str(), machineId, config_key);
+
+    if (0 < strlen(device_class))
+    {
+      json["device_class"] = device_class;
+    }
+    json["name"] = String(ha_name) + " " + name_suffix;
+    json["unique_id"] = String("anavi-") + machineId + "-" + config_key;
+    json["state_topic"] = String(workgroup) + "/" + machineId + "/" + state_topic;
+
+    json["device"]["identifiers"] = machineId;
+    json["device"]["manufacturer"] = "ANAVI Technology";
+    json["device"]["model"] = "ANAVI Gas Detector";
+    json["device"]["name"] = ha_name;
+    json["device"]["sw_version"] = ESP.getSketchMD5();
+
+    JsonArray connections = json["device"].createNestedArray("connections").createNestedArray();
+    connections.add("mac");
+    connections.add(WiFi.macAddress());
+
+    Serial.print("Home Assistant discovery topic: ");
+    Serial.println(topic);
+
+    int payload_len = measureJson(json);
     if (!mqttClient.beginPublish(topic, payload_len, true))
     {
         Serial.println("beginPublish failed!\n");
         return false;
     }
 
-    if (mqttClient.write((uint8_t*)payload, payload_len) != payload_len)
+    if (serializeJson(json, mqttClient) != payload_len)
     {
         Serial.println("writing payload: wrong size!\n");
         return false;
@@ -854,18 +876,76 @@ void publishState()
     static char topic[80];
 
 #ifdef HOME_ASSISTANT_DISCOVERY
-    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
-    snprintf(payload, sizeof(payload),
-             temp_template, ha_name, workgroup, machineId);
-    snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/%s/temp/config", machineId);
-    publishLargePayload(topic, payload, true);
 
-    snprintf(payload, sizeof(payload),
-             humid_template, ha_name, workgroup, machineId);
-    snprintf(topic, sizeof(topic),
-             "homeassistant/sensor/%s/humidity/config", machineId);
-    publishLargePayload(topic, payload, true);
+    String homeAssistantTempScale = (true == configTempCelsius) ? "°C" : "°F";
+
+    publishSensorDiscovery("DangerousGas",
+                           "gas",
+                           "Dangerous Gas",
+                           "DangerousGas",
+                           "",
+                           "",
+                           true);
+
+    publishSensorDiscovery("AirConductivity",
+                           "",
+                           "Air Conductivity",
+                           "AirConductivity",
+                           "%",
+                           "{{ value_json.Conductivity | round(2) }}");
+
+
+    if (isSensorAvailable(sensorHTU21D))
+    {
+        publishSensorDiscovery("temp",
+                               "temperature",
+                               "Temperature",
+                               "temperature",
+                               homeAssistantTempScale.c_str(),
+                               "{{ value_json.temperature | round(1) }}");
+
+        publishSensorDiscovery("humidity",
+                               "humidity",
+                               "Humidity",
+                               "humidity",
+                               "%",
+                               "{{ value_json.humidity | round(0) }}");
+    }
+
+    if (isSensorAvailable(sensorBMP180))
+    {
+        publishSensorDiscovery("BMPtemperature",
+                       "temperature",
+                       "BMP Temperature",
+                       "BMPtemperature",
+                       homeAssistantTempScale.c_str(),
+                       "{{ value_json.BMPtemperature | round(1) }}");
+
+        publishSensorDiscovery("BMPpressure",
+               "pressure",
+               "Pressure",
+               "BMPpressure",
+               "hPa",
+               "{{ value_json.BMPpressure | round(0) }}");
+
+        publishSensorDiscovery("BMPaltitude",
+               "",
+               "Altitude",
+               "BMPaltitude",
+               "m",
+               "{{ value_json.BMPaltitude | round(0) }}");
+    }
+
+    if (isSensorAvailable(sensorBH1750))
+    {
+        publishSensorDiscovery("light",
+                       "illuminance",
+                       "Light",
+                       "light",
+                       "Lux",
+                       "{{ value_json.light }}");
+    }
+
 #endif
 }
 
@@ -889,6 +969,13 @@ void publishSensorData(const char* subTopic, const char* key, const String& valu
     char topic[200];
     sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
     mqttClient.publish(topic, payload, true);
+}
+
+void publishSensorDataPlain(const char* subTopic, const String& payload)
+{
+    char topic[200];
+    sprintf(topic,"%s/%s/%s", workgroup, machineId, subTopic);
+    mqttClient.publish(topic, payload.c_str(), true);
 }
 
 bool isSensorAvailable(int sensorAddress)
@@ -1062,19 +1149,23 @@ void detectGas()
   int conductivity = round(((float)gas/1023)*100);
 
   String quality = "Good";
+  String gasState = "off";
   if (gas <= 190)
   {
     setColor(LOW, LOW, HIGH);
+    gasState = "OFF";
   }
   else if (gas <= 300)
   {
     quality="Moderate";
     setColor(LOW, HIGH, LOW);
+    gasState = "OFF";
   }
   else
   {
     quality="Poor";
     setColor(HIGH, LOW, LOW);
+    gasState = "ON";
   }
 
   // Do not print or draw on the display if there is no
@@ -1097,6 +1188,7 @@ void detectGas()
 
   // Publish new pressure values through MQTT
   publishSensorData("AirQuality", "Quality", quality);
+  publishSensorDataPlain("DangerousGas", gasState);
   publishSensorData("AirConductivity", "Conductivity", conductivity);
 
   // Print values in the serial output
