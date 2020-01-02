@@ -9,6 +9,9 @@
 
 #define HOME_ASSISTANT_DISCOVERY 1
 
+// If DEBUG is defined additional message will be printed in serial console
+#undef DEBUG
+
 // If PUBLISH_CHIP_ID is defined, the Anavi Gas Detector will publish
 // the chip ID using MQTT.  This can be considered a privacy issue,
 // and is disabled by default.
@@ -292,8 +295,13 @@ void setup()
                 DynamicJsonDocument json(1024);
                 if (DeserializationError::Ok == deserializeJson(json, buf.get()))
                 {
+#ifdef DEBUG
+                    // Content stored in the memory of the microcontroller contains
+                    // sensitive data such as username and passwords therefore
+                    // should be printed only during debugging
                     serializeJson(json, Serial);
                     Serial.println("\nparsed json");
+#endif
 
                     strcpy(mqtt_server, json["mqtt_server"]);
                     strcpy(mqtt_port, json["mqtt_port"]);
