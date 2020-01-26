@@ -14,7 +14,7 @@ Air pollution is a very serious problem. Monitoring air quality and detecting to
 
 The default firmware of ANAVI Gas Detector depends on the following Arduino libraries:
 
-* WiFiManager by tzapu (version 0.12.0)
+* WiFiManager by tzapu (version 0.15.0)
 * ArduinoJson by Benoit Blanchon (version 6.11.2)
 * PubSubClient by Nick O'Leary (version 2.7.0)
 * Adafruit HTU21DF Library by Adafruit (version 1.0.1)
