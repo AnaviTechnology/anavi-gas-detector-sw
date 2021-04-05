@@ -98,6 +98,9 @@ float sensorTemperature = 0;
 float sensorHumidity = 0;
 uint16_t sensorAmbientLight = 0;
 
+bool isPressureSensorAttached = false;
+float sensorBmpTemperature = 0;
+
 //define your default values here, if there are different values in config.json, they are overwritten.
 char mqtt_server[40] = "mqtt.eclipse.org";
 char mqtt_port[6] = "1883";
@@ -1123,6 +1126,14 @@ void handleBMP()
   Serial.print(altitude);
   Serial.println(" m");
 
+  // Do we need to draw again data on the mini OLED display?
+  // Yes if HTU21D sensor is not attached and there is a significant temperature change
+  if ( (false == isTempSensorAttached) && (0.3 <= abs(temperature - sensorBmpTemperature)) )
+  {
+    sensorBmpTemperature = temperature;
+    need_redraw = true;
+  }
+
   // Publish new pressure values through MQTT
   publishSensorData("BMPpressure", "BMPpressure", event.pressure);
   publishSensorData("BMPtemperature", "BMPtemperature", convertTemperature(temperature));
@@ -1132,6 +1143,7 @@ void handleBMP()
 void handleSensors()
 {
     isTempSensorAttached = false;
+    isPressureSensorAttached = false;
     if (isSensorAvailable(sensorHTU21D))
     {
         isTempSensorAttached = true;
@@ -1143,6 +1155,7 @@ void handleSensors()
     }
     if (isSensorAvailable(sensorBMP180))
     {
+      isPressureSensorAttached = true;
       handleBMP();
     }
 }
@@ -1282,6 +1295,12 @@ void loop()
           sensor_line1 += formatTemperature(sensorTemperature) + " ";
           sensor_line1 += (int)round(sensorHumidity);
           sensor_line1 += "%";
+        }
+        else if (true == isPressureSensorAttached)
+        {
+          // show only temperature if HTU21D sensor is not attached but
+          // BMP180/280 sensor is attached
+          sensor_line1 += formatTemperature(sensorBmpTemperature);
         }
         drawDisplay(mqtt_line1[0] ? mqtt_line1 : sensor_line1.c_str(),
                     mqtt_line2[0] ? mqtt_line2 : sensor_line2.c_str(),
